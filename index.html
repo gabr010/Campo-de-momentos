@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>Campo de Momentos - Mecânica 1</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.1.0/plotly.min.js"></script>
+<style>
+  body { margin:0; font-family: Arial, sans-serif; background:#fff; color:#1a2b3c; }
+  #app { display:flex; height:100vh; }
+  #plot { flex:3; }
+  #painel { flex:1; min-width:270px; padding:16px; overflow-y:auto; border-left:1px solid #c7dbf0;
+            background:#fbfdff; box-shadow: -2px 0 6px rgba(21,101,192,0.06); }
+  h2 { color:#1565c0; font-size:17px; margin:4px 0 14px; padding-bottom:8px; border-bottom:2px solid #cfe0f2; }
+  h3 { color:#1565c0; font-size:12.5px; margin:16px 0 8px; text-transform:uppercase; letter-spacing:0.03em; }
+  .linha { display:flex; gap:6px; margin-bottom:6px; }
+  .linha label { font-size:11px; color:#5a6b7d; display:block; margin-bottom:2px; }
+  .linha input[type=number] { width:100%; padding:5px; border:1px solid #c7dbf0; border-radius:5px; box-sizing:border-box; }
+  .slider-row { margin-bottom:12px; }
+  .slider-row .topo { display:flex; justify-content:space-between; font-size:12px; margin-bottom:2px; }
+  .slider-row .topo span:last-child { color:#1565c0; font-weight:bold; }
+  .slider-row input[type=range] { width:100%; accent-color:#1565c0; }
+  .chk { font-size:12.5px; margin-bottom:6px; display:block; }
+  .btn-vista { background:#eef1f6; border:1px solid #b7c1cf; border-radius:5px; padding:7px 5px;
+               font-size:11px; cursor:pointer; margin:2px; transition:background 0.15s; }
+  .btn-vista:hover { background:#c9d6e8; }
+  #botoes-vista { display:flex; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="plot"></div>
+  <div id="painel">
+    <h2>Campo de Momentos</h2>
+
+    <h3>Força F</h3>
+    <div class="linha">
+      <div><label>Fx</label><input type="number" id="Fx" value="1"></div>
+      <div><label>Fy</label><input type="number" id="Fy" value="2"></div>
+      <div><label>Fz</label><input type="number" id="Fz" value="3"></div>
+    </div>
+
+    <h3>Ponto de aplicação P</h3>
+    <div class="linha">
+      <div><label>Px</label><input type="number" id="Px" value="0"></div>
+      <div><label>Py</label><input type="number" id="Py" value="0"></div>
+      <div><label>Pz</label><input type="number" id="Pz" value="0"></div>
+    </div>
+
+    <h3>Geometria do campo</h3>
+    <div class="slider-row"><div class="topo"><span>Nº planos</span><span id="v_nplanos">3</span></div>
+      <input type="range" id="nplanos" min="1" max="15" step="1" value="3"></div>
+    <div class="slider-row"><div class="topo"><span>Nº de raios por direção</span><span id="v_nraios">1</span></div>
+      <input type="range" id="nraios" min="1" max="5" step="1" value="1"></div>
+    <div class="slider-row"><div class="topo"><span>Raio máximo O-Q</span><span id="v_raio">2.0</span></div>
+      <input type="range" id="raio" min="0.3" max="5" step="0.1" value="2.0"></div>
+    <div class="slider-row"><div class="topo"><span>Espaçamento entre planos</span><span id="v_espaco">2.0</span></div>
+      <input type="range" id="espaco" min="0.3" max="5" step="0.1" value="2.0"></div>
+    <div class="slider-row"><div class="topo"><span>Escala visual de M(O)</span><span id="v_escala">0.40</span></div>
+      <input type="range" id="escala" min="0.05" max="2" step="0.01" value="0.40"></div>
+
+    <!-- checkboxes -->
+    <h3>Mostrar</h3>
+    <label class="chk"><input type="checkbox" id="chk_F" checked> F e linha de ação</label>
+    <label class="chk"><input type="checkbox" id="chk_M" checked> M(O)</label>
+    <label class="chk"><input type="checkbox" id="chk_OQ" checked> O → Q</label>
+    <label class="chk"><input type="checkbox" id="chk_MQ" checked> ponta M(O) → Q</label>
+
+    <!-- botoes de vista rapida -->
+    <h3>Vista rápida</h3>
+    <div id="botoes-vista">
+      <button class="btn-vista" data-v="XY">XY</button>
+      <button class="btn-vista" data-v="XZ">XZ</button>
+      <button class="btn-vista" data-v="YZ">YZ</button>
+      <button class="btn-vista" data-v="Iso">Isométrica</button>
+      <!-- vista ao longo de F (olhando pela linha de ação) -->
+      <button class="btn-vista" data-v="axial">Ao longo de F</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const corF='red', corM='black', corOQ='green', corMQ='blue', corQPonto='darkred';
+const Nretas = 6; // 360/6 = 60 graus entre retas
+
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+const add=(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]];
+const esc=(a,k)=>[a[0]*k,a[1]*k,a[2]*k];
+const norm=a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);
+const unit=a=>{const n=norm(a); return n<1e-12?[0,0,0]:esc(a,1/n);};
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+
+function baseOrtogonal(u){
+  let v1 = Math.abs(u[2])<0.9 ? cross(u,[0,0,1]) : cross(u,[0,1,0]);
+  v1 = unit(v1);
+  const v2 = cross(u,v1);
+  return [v1,v2];
+}
+
+function momento(O,P,F){ return cross(sub(P,O), F); }
+
+function calcularCampo(F,P,nplanos,raio,espaco,escala,nraios){
+  const Fnorma = norm(F);
+  if (Fnorma < 1e-12) return null;
+  const u = unit(F);
+  const [v1,v2] = baseOrtogonal(u);
+
+  const offsets=[]; for(let i=0;i<nplanos;i++) offsets.push((i-(nplanos-1)/2)*espaco);
+  const thetas=[]; for(let j=0;j<Nretas;j++) thetas.push(j*(2*Math.PI/Nretas));
+
+  const rVals = nraios<=1 ? [raio] : Array.from({length:nraios},(_,k)=>raio/nraios + k*(raio-raio/nraios)/(nraios-1));
+
+  const Os=[], QsRep=[], Qs=[];
+  for (const off of offsets){
+    const Q = add(P, esc(u,off));
+    Qs.push(Q);
+    for (const th of thetas){
+      const uRad = add(esc(v1,Math.cos(th)), esc(v2,Math.sin(th)));
+      for (const r of rVals){
+        Os.push(add(Q, esc(uRad,r)));
+        QsRep.push(Q);
+      }
+    }
+  }
+
+  const MsVis = Os.map(O => esc(momento(O,P,F), escala));
+  const PontasM = Os.map((O,i)=>add(O,MsVis[i]));
+
+  const alcance = (offsets.length? Math.max(...offsets.map(Math.abs)) : 0) + espaco + 1.0;
+  const linhaAcao = [sub(P,esc(u,alcance)), add(P,esc(u,alcance))];
+
+  return {Qs, QsRep, Os, MsVis, PontasM, linhaAcao, alcance};
+}
+
+function coordsSetas(bases, pontas, fracao=0.25, angGraus=20){
+  const xs=[],ys=[],zs=[]; const ang = angGraus*Math.PI/180;
+  for (let i=0;i<bases.length;i++){
+    const b=bases[i], p=pontas[i];
+    const vec = sub(p,b); const L = norm(vec);
+    xs.push(b[0],p[0],null); ys.push(b[1],p[1],null); zs.push(b[2],p[2],null);
+    if (L<1e-9) continue;
+    const d = esc(vec,1/L);
+    const [w,] = baseOrtogonal(d);
+    const ah = Math.min(fracao*L, 0.35);
+    const asa1 = sub(p, esc(sub(esc(d,Math.cos(ang)), esc(w,Math.sin(ang))), ah));
+    const asa2 = sub(p, esc(add(esc(d,Math.cos(ang)), esc(w,Math.sin(ang))), ah));
+    xs.push(p[0],asa1[0],null,p[0],asa2[0],null);
+    ys.push(p[1],asa1[1],null,p[1],asa2[1],null);
+    zs.push(p[2],asa1[2],null,p[2],asa2[2],null);
+  }
+  return [xs,ys,zs];
+}
+
+function coordsLinhas(pares){
+  const xs=[],ys=[],zs=[];
+  for (const [a,b] of pares){ xs.push(a[0],b[0],null); ys.push(a[1],b[1],null); zs.push(a[2],b[2],null); }
+  return [xs,ys,zs];
+}
+
+const CAMERAS = {
+  XY:  {eye:{x:0,y:0.001,z:2.6}, up:{x:0,y:1,z:0}},
+  XZ:  {eye:{x:0,y:-2.6,z:0.001}, up:{x:0,y:0,z:1}},
+  YZ:  {eye:{x:2.6,y:0,z:0.001}, up:{x:0,y:0,z:1}},
+  Iso: {eye:{x:1.4,y:1.4,z:1.1}, up:{x:0,y:0,z:1}},
+};
+function cameraAoLongoDeF(F){
+  const Fnorma = norm(F);
+  if (Fnorma<1e-9) return CAMERAS.Iso;
+  const u = unit(F);
+  const [v1,] = baseOrtogonal(u);
+  return {eye:{x:u[0]*2.6,y:u[1]*2.6,z:u[2]*2.6}, up:{x:v1[0],y:v1[1],z:v1[2]}};
+}
+
+let cameraAtual = CAMERAS.Iso;
+
+function montarFigura(F,P,nplanos,nraios,raio,espaco,escala,mostrar){
+  const campo = calcularCampo(F,P,nplanos,raio,espaco,escala,nraios);
+  const data = [];
+  if (!campo){
+    return {data:[], layout:{title:'F = (0,0,0): campo de momentos indefinido'}};
+  }
+  const {Qs,QsRep,Os,MsVis,PontasM,linhaAcao,alcance} = campo;
+
+  if (mostrar.F){
+    const [x,y,z] = coordsLinhas([[linhaAcao[0], linhaAcao[1]]]);
+    data.push({x,y,z,mode:'lines',type:'scatter3d',line:{color:corF,width:3,dash:'dash'},name:'Linha de ação de F'});
+
+    const compFvis = raio*1.3;
+    const Fvis = esc(F, compFvis/norm(F));
+    const [xa,ya,za] = coordsSetas([P],[add(P,Fvis)],0.25);
+    data.push({x:xa,y:ya,z:za,mode:'lines',type:'scatter3d',line:{color:corF,width:6},name:'Força F'});
+
+    data.push({x:[P[0]],y:[P[1]],z:[P[2]],mode:'markers',type:'scatter3d',
+               marker:{size:7,color:corF,symbol:'circle-open',line:{width:3}},name:'P (aplicação de F)'});
+    data.push({x:[P[0]],y:[P[1]],z:[P[2]],mode:'markers',type:'scatter3d',
+               marker:{size:5,color:corF,symbol:'x'},showlegend:false});
+  }
+
+  if (mostrar.OQ){
+    const pares = Os.map((O,i)=>[O,QsRep[i]]);
+    const [x,y,z] = coordsLinhas(pares);
+    data.push({x,y,z,mode:'lines',type:'scatter3d',line:{color:corOQ,width:2,dash:'dash'},name:'O → Q',opacity:0.9});
+    data.push({x:Qs.map(q=>q[0]),y:Qs.map(q=>q[1]),z:Qs.map(q=>q[2]),mode:'markers',type:'scatter3d',
+               marker:{size:4,color:corQPonto},showlegend:false});
+  }
+
+  if (mostrar.M){
+    const [x,y,z] = coordsSetas(Os,PontasM,0.28);
+    data.push({x,y,z,mode:'lines',type:'scatter3d',line:{color:corM,width:5},name:'M(O)'});
+    data.push({x:Os.map(o=>o[0]),y:Os.map(o=>o[1]),z:Os.map(o=>o[2]),mode:'markers',type:'scatter3d',
+               marker:{size:3,color:corM},name:'pontos O'});
+  }
+
+  if (mostrar.MQ){
+    const pares = PontasM.map((m,i)=>[m,QsRep[i]]);
+    const [x,y,z] = coordsLinhas(pares);
+    data.push({x,y,z,mode:'lines',type:'scatter3d',line:{color:corMQ,width:1.5,dash:'dot'},name:'ponta M(O) → Q',opacity:0.75});
+  }
+
+  const lim = alcance + raio + 0.5;
+  const eixo = {backgroundcolor:'white',gridcolor:'#cfe0f2',zerolinecolor:'#8fb8e6',showbackground:true,color:'#2c5a8a'};
+  const layout = {
+    scene:{
+      xaxis:Object.assign({title:'X',range:[P[0]-lim,P[0]+lim]},eixo),
+      yaxis:Object.assign({title:'Y',range:[P[1]-lim,P[1]+lim]},eixo),
+      zaxis:Object.assign({title:'Z',range:[P[2]-lim,P[2]+lim]},eixo),
+      aspectmode:'cube', camera:cameraAtual,
+    },
+    title:{text:'Campo de Momentos e Linha de Ação da Força', font:{color:'#1565c0'}},
+    paper_bgcolor:'white', margin:{l:0,r:0,t:40,b:0},
+    legend:{x:0.01,y:0.99,bgcolor:'rgba(255,255,255,0.85)',bordercolor:'#c7dbf0',borderwidth:1},
+    uirevision:'manter',
+  };
+  return {data, layout};
+}
+
+function lerEntradas(){
+  const v = id => parseFloat(document.getElementById(id).value);
+  return {
+    F:[v('Fx'),v('Fy'),v('Fz')], P:[v('Px'),v('Py'),v('Pz')],
+    nplanos: parseInt(document.getElementById('nplanos').value),
+    nraios: parseInt(document.getElementById('nraios').value),
+    raio: v('raio'), espaco: v('espaco'), escala: v('escala'),
+    mostrar: {
+      F: document.getElementById('chk_F').checked,
+      M: document.getElementById('chk_M').checked,
+      OQ: document.getElementById('chk_OQ').checked,
+      MQ: document.getElementById('chk_MQ').checked,
+    }
+  };
+}
+
+function atualizarLabels(){
+  document.getElementById('v_nplanos').textContent = document.getElementById('nplanos').value;
+  document.getElementById('v_nraios').textContent = document.getElementById('nraios').value;
+  document.getElementById('v_raio').textContent = parseFloat(document.getElementById('raio').value).toFixed(1);
+  document.getElementById('v_espaco').textContent = parseFloat(document.getElementById('espaco').value).toFixed(1);
+  document.getElementById('v_escala').textContent = parseFloat(document.getElementById('escala').value).toFixed(2);
+}
+
+function redesenhar(){
+  atualizarLabels();
+  const e = lerEntradas();
+  const {data, layout} = montarFigura(e.F,e.P,e.nplanos,e.nraios,e.raio,e.espaco,e.escala,e.mostrar);
+  Plotly.react('plot', data, layout);
+}
+
+document.querySelectorAll('input').forEach(el => el.addEventListener('input', redesenhar));
+
+document.querySelectorAll('.btn-vista').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const nome = btn.dataset.v;
+    const e = lerEntradas();
+    cameraAtual = nome==='axial' ? cameraAoLongoDeF(e.F) : CAMERAS[nome];
+    redesenhar();
+  });
+});
+
+redesenhar();
+</script>
+</body>
+</html>
